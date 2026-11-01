@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gesture-threejs Demo - Solar System Explorer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            margin: 0; overflow: hidden; background: #000; 
+            font-family: 'Segoe UI', sans-serif; 
+        }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; z-index: 1; }
+        #hud-canvas { position: absolute; top: 20px; left: 20px; z-index: 100; pointer-events: none; }
+        #video-input { 
+            position: absolute; bottom: 20px; right: 20px; 
+            width: 160px; height: 120px; z-index: 2; 
+            transform: scaleX(-1); opacity: 0.3; border-radius: 8px; 
+        }
+        #loading { 
+            position: absolute; top:0; left:0; width:100%; height:100%; 
+            background:#000; z-index:10; display:flex; 
+            justify-content:center; align-items:center; flex-direction:column; 
+            color:#00d2ff; transition: opacity 1s; 
+        }
+        .spinner { 
+            width: 50px; height: 50px; 
+            border: 3px solid rgba(0,210,255,0.2); 
+            border-top-color: #00d2ff; border-radius: 50%; 
+            animation: spin 1s linear infinite; margin-bottom: 20px; 
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hidden { opacity: 0; pointer-events: none; }
+        .controls-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 50;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #00d2ff;
+            color: #fff;
+            font-size: 13px;
+            line-height: 1.8;
+            max-width: 300px;
+        }
+        .controls-panel h3 { margin: 0 0 10px; color: #00d2ff; font-size: 14px; }
+    </style>
+    <script type="importmap">
+        { 
+            "imports": { 
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "gesture-threejs": "/src/index.ts"
+            } 
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Loading gesture-threejs Demo...</div>
+    </div>
+
+    <canvas id="hud-canvas"></canvas>
+    <video id="video-input"></video>
+    <div id="canvas-container"></div>
+    
+    <div class="controls-panel">
+        <h3>Gesture Controls</h3>
+        <div>🖐️ <b>Open Hand</b> — Orbit View</div>
+        <div>✊ <b>Fist</b> — Zoom Target</div>
+        <div>☝️ <b>Point</b> — Next Planet</div>
+        <div>🤏 <b>Pinch</b> — Previous Planet</div>
+        <div>✌️ <b>Peace</b> — Time 10x</div>
+        <div>🛑 <b>Stop</b> — Pause</div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import {
+            GestureController,
+            GestureVocabulary,
+            ParticleSystem,
+            ForceField,
+            CelestialBodyFactory,
+            TextureLoader,
+            OrbitMechanics,
+            GestureOrbitControls,
+            GestureHUD
+        } from 'gesture-threejs';
+
+        // --- Configuration ---
+        const solarData = [
+            { name: "Sun", radius: 12, distance: 0, speed: 0.0, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/sun.jpg', emissive: true },
+            { name: "Mercury", radius: 1, distance: 25, speed: 0.04, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mercury.jpg' },
+            { name: "Venus", radius: 2, distance: 35, speed: 0.03, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/venus_atmosphere.jpg' },
+            { name: "Earth", radius: 2.2, distance: 50, speed: 0.02, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg' },
+            { name: "Mars", radius: 1.5, distance: 70, speed: 0.016, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/mars_1k.jpg' },
+            { name: "Jupiter", radius: 7, distance: 110, speed: 0.008, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/jupiter_2k.jpg' },
+            { name: "Saturn", radius: 6, distance: 150, speed: 0.006, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/saturn_2k.jpg' },
+            { name: "Uranus", radius: 4, distance: 190, speed: 0.004, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/uranus_2k.jpg' },
+            { name: "Neptune", radius: 4, distance: 230, speed: 0.003, texture: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/neptune_2k.jpg' }
+        ];
+
+        const state = {
+            targetIndex: 3, // Earth
+            viewMode: 'Orbit',
+            timeMultiplier: 1.0,
+            currentGesture: 'Neutral',
+            lastGestureTime: 0
+        };
+
+        // --- 1. Scene Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x333333);
+        scene.add(ambientLight);
+        const sunLight = new THREE.PointLight(0xffffff, 2, 400);
+        sunLight.position.set(0, 0, 0);
+        scene.add(sunLight);
+
+        // Background Stars
+        const starGeo = new THREE.BufferGeometry();
+        const starVertices = [];
+        for(let i=0; i<5000; i++) {
+            starVertices.push(THREE.MathUtils.randFloatSpread(1000));
+            starVertices.push(THREE.MathUtils.randFloatSpread(1000));
+            starVertices.push(THREE.MathUtils.randFloatSpread(1000));
+        }
+        starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+        const starMat = new THREE.PointsMaterial({color: 0x888888, size: 0.5});
+        scene.add(new THREE.Points(starGeo, starMat));
+
+        // --- 2. Create Solar System using CelestialBodyFactory ---
+        const factory = new CelestialBodyFactory();
+        const { sun, planets } = factory.createSolarSystem();
+        
+        scene.add(sun.mesh);
+        if (sun.orbitLine) scene.add(sun.orbitLine);
+        
+        const celestialBodies = [sun, ...planets];
+        planets.forEach(p => {
+            scene.add(p.mesh);
+            if (p.orbitLine) scene.add(p.orbitLine);
+        });
+
+        // Asteroid belt
+        const asteroidBelt = factory.createAsteroidBelt(80, 100, 300);
+        scene.add(asteroidBelt);
+
+        // Camera setup
+        const cameraRig = new THREE.Object3D();
+        scene.add(cameraRig);
+        camera.position.set(0, 20, 100);
+        camera.lookAt(0, 0, 0);
+
+        // --- 3. Gesture Controller ---
+        const videoElement = document.getElementById('video-input');
+        const gestureController = new GestureController({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.6,
+            onGesture: (event) => handleGesture(event),
+            onHandLost: (handIndex) => {
+                handleGesture({ name: 'Neutral', timestamp: Date.now(), confidence: 0, landmarks: [], handIndex });
+            }
+        });
+
+        await gestureController.initialize(videoElement);
+        gestureController.start();
+
+        // --- 4. Gesture Orbit Controls ---
+        const gestureControls = new GestureOrbitControls(camera, renderer.domElement, {
+            enableGestureFallback: true,
+            gestureDebounceMs: 300,
+            smoothFactor: 0.08
+        });
+
+        // --- 5. HUD ---
+        const hudCanvas = document.getElementById('hud-canvas');
+        const hud = new GestureHUD({
+            showLandmarks: true,
+            showGestureName: true,
+            showPerformance: true,
+            position: 'top-left'
+        });
+        hud.attachTo(document.body);
+
+        // --- 6. Particle System (optional enhancement) ---
+        const particleSystem = new ParticleSystem({
+            particleCount: 5000,
+            distribution: 'sphere'
+        });
+        scene.add(particleSystem.getObject());
+
+        // --- Gesture Handler ---
+        function handleGesture(event: any) {
+            const gesture = event.name;
+            const now = Date.now();
+            
+            // Debounce
+            if (now - state.lastGestureTime < 400) return;
+
+            // Update gesture controls
+            gestureControls.handleGesture(gesture);
+
+            // App logic
+            let icon = '✋';
+            switch(gesture) {
+                case 'Open':
+                    state.viewMode = 'Orbit';
+                    icon = '🖐️';
+                    break;
+                case 'Fist':
+                    state.viewMode = 'Planet';
+                    icon = '✊';
+                    break;
+                case 'Point':
+                    state.targetIndex = (state.targetIndex + 1) % solarData.length;
+                    icon = '☝️';
+                    break;
+                case 'Pinch':
+                    state.targetIndex = (state.targetIndex - 1 + solarData.length) % solarData.length;
+                    icon = '🤏';
+                    break;
+                case 'Peace':
+                    state.timeMultiplier = 10.0;
+                    icon = '✌️';
+                    break;
+                case 'Stop':
+                    state.timeMultiplier = 0.0;
+                    icon = '🛑';
+                    break;
+                default:
+                    if(state.timeMultiplier !== 1.0 && state.currentGesture !== 'Neutral') {
+                        state.timeMultiplier = 1.0;
+                    }
+            }
+
+            if(gesture !== 'Neutral' && gesture !== state.currentGesture) {
+                state.lastGestureTime = now;
+            }
+            state.currentGesture = gesture;
+
+            // Update HUD
+            hud.setGesture(gesture, icon);
+        }
+
+        // --- Animation Loop ---
+        const clock = new THREE.Clock();
+        let lastFpsTime = 0;
+        let frameCount = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const timeSim = delta * state.timeMultiplier;
+
+            // Update celestial bodies
+            celestialBodies.forEach((body) => {
+                body.update(timeSim, state.timeMultiplier);
+            });
+
+            // Asteroid belt rotation
+            asteroidBelt.rotation.y += 0.0001;
+
+            // Update particle system with gesture
+            if (state.currentGesture !== 'Neutral') {
+                const targetBody = celestialBodies[state.targetIndex];
+                const handPos = new THREE.Vector3(
+                    targetBody.mesh.position.x,
+                    targetBody.mesh.position.y,
+                    targetBody.mesh.position.z
+                );
+                particleSystem.setGesture(state.currentGesture, handPos);
+            } else {
+                particleSystem.setGesture('Neutral');
+            }
+            particleSystem.animate(delta);
+
+            // Camera Logic
+            const targetBody = celestialBodies[state.targetIndex];
+            
+            if (state.viewMode === 'Planet') {
+                const offsetDistance = targetBody.config.radius * 4.0;
+                const offsetX = Math.cos(targetBody.orbitAngle + 0.5) * offsetDistance;
+                const offsetZ = Math.sin(targetBody.orbitAngle + 0.5) * offsetDistance;
+                
+                gestureControls.gestureTarget.set(
+                    targetBody.mesh.position.x + offsetX,
+                    targetBody.mesh.position.y + (targetBody.config.radius * 1.5),
+                    targetBody.mesh.position.z + offsetZ
+                );
+                gestureControls.target.lerp(targetBody.mesh.position, 0.08);
+            } else {
+                // Orbit View
+                const midX = targetBody.mesh.position.x / 2;
+                const midZ = targetBody.mesh.position.z / 2;
+                gestureControls.gestureTarget.set(midX, 180, midZ + 100);
+                gestureControls.target.lerp(new THREE.Vector3(midX, 0, midZ), 0.08);
+            }
+
+            gestureControls.update();
+
+            // Update HUD
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                hud.updatePerformance(frameCount, particleSystem.particleCount);
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+            hud.setAppState(solarData[state.targetIndex].name, state.viewMode, state.timeMultiplier);
+            hud.render();
+
+            renderer.render(scene, camera);
+        }
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Hide loading
+        document.getElementById('loading').classList.add('hidden');
+
+        animate();
+    </script>
+</body>
+</html>

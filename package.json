@@ -1,0 +1,66 @@
+{
+  "name": "gesture-threejs",
+  "version": "1.0.0",
+  "description": "Universal 3D Gesture Control Library - MediaPipe Hands + Three.js with standardized gestures, physics particles, celestial bodies",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./core": "./dist/core/index.js",
+    "./physics": "./dist/physics/index.js",
+    "./factory": "./dist/factory/index.js",
+    "./controls": "./dist/controls/index.js",
+    "./hud": "./dist/hud/index.js"
+  },
+  "scripts": {
+    "dev": "vite demo",
+    "build": "rollup -c",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "threejs",
+    "mediapipe",
+    "gesture",
+    "hand-tracking",
+    "webgl",
+    "3d",
+    "particles",
+    "solar-system",
+    "creative-coding"
+  ],
+  "author": "Vighnesh Kumbhar",
+  "license": "MIT",
+  "peerDependencies": {
+    "@mediapipe/hands": ">=0.4.0",
+    "three": ">=0.150.0"
+  },
+  "devDependencies": {
+    "@mediapipe/hands": "^0.4.1675469240",
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^1.0.2",
+    "@rollup/plugin-typescript": "^12.3.1",
+    "@types/three": "^0.160.0",
+    "rollup-plugin-dts": "^6.5.1",
+    "three": "^0.160.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vitest": "^1.4.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
